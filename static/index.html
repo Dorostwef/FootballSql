@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FootballSql · Read-Only Analytics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Vazirmatn:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="chat-app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">⚽</div>
+        <div>
+          <h1>FootballSql Analytics</h1>
+          <p class="subtitle">Iran Persian Gulf Pro League · 2026-27 (1405-06)</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span class="status-pill" title="SQLite opened in strict mode=ro">
+          <span class="dot"></span> Read-Only
+        </span>
+        <button id="reset-btn" type="button" class="btn btn-secondary btn-sm">
+          New Chat
+        </button>
+      </div>
+    </header>
+
+    <main id="chat-scroll" class="chat-scroll">
+      <div class="chat-container">
+        <section id="empty-state" class="empty-state">
+          <div class="welcome-icon" aria-hidden="true">⚽</div>
+          <h2>Ask anything about the Persian Gulf Pro League</h2>
+          <p>
+            Every question is planned against the semantic model, validated with AST + schema checks,
+            dry-run via <code>EXPLAIN QUERY PLAN</code>, and executed in a strictly read-only SQLite sandbox.
+          </p>
+          <div class="chips-grid" aria-label="Example questions">
+            <button
+              type="button"
+              class="chip"
+              data-question="Who are the top 5 goal scorers and their teams?"
+            >
+              Top 5 goal scorers (EN)
+            </button>
+            <button
+              type="button"
+              class="chip chip-rtl"
+              dir="rtl"
+              data-question="جدول لیگ را چه تیمی صدرنشین است؟"
+            >
+              جدول لیگ را چه تیمی صدرنشین است؟
+            </button>
+            <button
+              type="button"
+              class="chip"
+              data-question="Who is the best player?"
+            >
+              Clarify: Best player?
+            </button>
+            <button
+              type="button"
+              class="chip chip-warn"
+              data-question="Delete the cancelled matches."
+            >
+              Refuse write: Delete matches
+            </button>
+            <button
+              type="button"
+              class="chip chip-warn"
+              data-question="Which team has the most fans?"
+            >
+              Refuse scope: Most fans
+            </button>
+          </div>
+        </section>
+
+        <section id="thread" class="thread" aria-live="polite"></section>
+      </div>
+
+      <button id="jump-latest-btn" type="button" class="jump-latest-btn hidden">
+        ↓ Jump to latest
+      </button>
+    </main>
+
+    <footer class="composer-dock">
+      <form id="ask-form" class="composer-form">
+        <textarea
+          id="question-input"
+          rows="1"
+          dir="auto"
+          placeholder="Ask in English or Persian (Enter to send, Shift+Enter for newline)..."
+          required
+        ></textarea>
+        <button id="submit-btn" type="submit" class="btn btn-primary send-btn">
+          <span class="btn-label">Send</span>
+          <span id="loading-spinner" class="spinner hidden" aria-hidden="true"></span>
+        </button>
+      </form>
+    </footer>
+  </div>
+</body>
+</html>
