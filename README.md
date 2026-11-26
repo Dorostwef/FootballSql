@@ -1,6 +1,6 @@
 # FootballSql — Read-Only Text-to-SQL Analytics
 
-**Live Demo URL:** `<TBD — add Hamravesh deployment URL here>`
+**Live Demo URL:** `https://dorostfootballsql.darkube.ir/`
 
 Bilingual (Persian / English) Text-to-SQL web application for the **Iran Persian Gulf Pro League 2026-27 (1405-06)** (`data/football.db`), featuring a modern `100dvh` chatbot UI, automatic Chart.js visualizations colored by each team's `primary_color`, and full SQL explainability & execution traces.
 
