@@ -216,6 +216,21 @@ def check_sql_quality(sql: str, question: str = "") -> list[str]:
             for t in select_node.find_all(exp.Table)
             if t.name and t.find_ancestor(exp.Select) is select_node
         }
+        if "v_player_minutes" in tables_in_sel and "lineup" in tables_in_sel:
+            eq_pairs_pm: set[frozenset[tuple[str, str]]] = set()
+            for eq in select_node.find_all(exp.EQ):
+                if isinstance(eq.left, exp.Column) and isinstance(eq.right, exp.Column):
+                    l_tbl = (eq.left.table or "").lower()
+                    r_tbl = (eq.right.table or "").lower()
+                    eq_pairs_pm.add(frozenset({(l_tbl, eq.left.name.lower()), (r_tbl, eq.right.name.lower())}))
+            pm_alias = tables_in_sel["v_player_minutes"]
+            l_alias = tables_in_sel["lineup"]
+            if frozenset({(pm_alias, "player_id"), (l_alias, "player_id")}) not in eq_pairs_pm:
+                issues.append(
+                    "Joining 'v_player_minutes' with 'lineup' without matching player_id multiplies every player's "
+                    "minutes by all teammates. Join 'team' directly on v_player_minutes.team_id = team.team_id "
+                    "instead of joining 'lineup'."
+                )
         if "lineup" in tables_in_sel and "v_team_match" in tables_in_sel:
             eq_pairs: set[frozenset[tuple[str, str]]] = set()
             for eq in select_node.find_all(exp.EQ):

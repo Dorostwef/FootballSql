@@ -211,10 +211,10 @@ def ask(request: AskRequest) -> AskResponse:
                 semantic_model=semantic_model,
                 schema_sql=schema_sql,
                 scope_retry_note=(
-                    "You returned refuse_out_of_scope, but the question references entities/concepts that DO exist "
-                    "in the schema. Check multi-hop join paths via match.match_id (for example: "
-                    "card/goal/penalty/substitution/var_decision -> match -> referee/stadium) before refusing. "
-                    "If it can be answered with a multi-hop JOIN, return answer_from_query."
+                    "Wait: the entities in this question DO exist in the database schema! "
+                    "Remember that referee_id and stadium_id live on 'match', so you MUST join event tables "
+                    "(card, goal, penalty, substitution, var_decision) to 'match' on match_id and then to "
+                    "'referee' or 'stadium'. Return action='answer_from_query' with the multi-hop JOIN SQL."
                 ),
             )
         except LLMConfigurationError as exc:
