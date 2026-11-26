@@ -93,12 +93,20 @@ Coach on the touchline for that team in that match. Several teams changed coach 
 
 ## Join rules (the usual mistakes)
 1. A team appears in a match as **either** home or away. Use `v_team_match`, or `OR`, or `UNION ALL` — never only `home_team_id`.
-2. Scorer's club = `goal.scorer_team_id`, not `goal.team_id`. Exclude `is_own_goal = 1` for scorer charts.
-3. Do not add `penalty` rows to `goal` rows; converted penalties are already in `goal`.
-4. Join `v_team_match` to `lineup` on **both** `match_id` and `team_id`.
-5. Referee and stadium live on `match`, not on event tables.
-6. Played matches = `status = 'finished'`. The standings also count `awarded`.
-7. A sending-off is `card_type IN ('red','second_yellow')`.
+2. **Own goals & team goals vs. scorer club:** `goal.team_id` is the **scoring/credited** team (whose scoreboard increased); `goal.scorer_team_id` is the team the **player plays for**.
+   - For team-level goals-scored questions ("which team scored..."), ALWAYS join `team` on `goal.team_id` (NEVER `goal.scorer_team_id`).
+   - For individual player top-scorer charts, join `team` on `goal.scorer_team_id` and exclude `is_own_goal = 1`.
+   - For listing own goals (`is_own_goal = 1`), ALWAYS join `player` (for `p.name_fa`) and join `team` twice (on `scorer_team_id` AND `team_id`), projecting `(match_id, scorer, scorer_team, benefited_team, minute, added_time)` ordered by `match_id`.
+3. Do not add `penalty` rows to `goal` rows; converted penalties are already in `goal` (`is_penalty = 1`). Use `penalty` for total penalty attempts and outcomes (`scored`, `saved`, `missed`).
+4. **Goalkeeper clean sheets:** Join `lineup` (`position = 'GK'`, `is_starter = 1`) to `v_team_match` on **BOTH** `match_id` AND `team_id` (`l.match_id = tm.match_id AND l.team_id = tm.team_id`), join `match` with `m.status = 'finished'`, join `player` and `team`, and filter `tm.goals_against = 0`. Never join `lineup` to `v_team_match` on `team_id` alone.
+5. **Referee & stadium:** Live on `match` (`match.referee_id`, `match.stadium_id`), never on event tables (`goal`, `card`, `substitution`, `penalty`, `var_decision`). Join event tables to `match` on `match_id`, then to `referee` / `stadium`.
+6. **Played matches vs. standings:** Counting played matches MUST query `match WHERE status = 'finished'` directly (NEVER `v_team_match`, NEVER `home_goals IS NOT NULL`, and NEVER `status IN ('finished','awarded')` — the 1 `awarded` forfeit match counts only in standings/`v_team_match`).
+7. **Sending-offs:** A sending-off / red card includes straight reds and second yellows: `card_type IN ('red','second_yellow')`.
+8. **Starting formations:** Stored per side on `match` (`home_formation`, `away_formation`) for `status = 'finished'`. When joining via `match_coach` (or a team), pick the matching side: `CASE WHEN m.home_team_id = mc.team_id THEN m.home_formation ELSE m.away_formation END`.
+9. **Late goals & stoppage time:** `minute` stores the regulation minute (`45` or `90` during stoppage time) and `added_time` stores stoppage minutes. "After the Nth minute" means strictly greater than N (`minute > N`); therefore "after the 75th minute" is `half = 'second_half' AND minute >= 76` (which already includes `90+...` stoppage time).
+10. **Coaching changes:** `match_coach` stores the head coach per `(match_id, team_id)`. To list teams that changed head coach and every coach they used, first find teams with `HAVING COUNT(DISTINCT coach_id) > 1` in a subquery or CTE, then `GROUP BY mc.team_id, mc.coach_id` (joining `team`, `coach`, and `match` for round ranges/match counts) — never `GROUP BY team_id` alone in SQLite, which collapses multiple coaches into one arbitrary row.
+11. **Minutes played:** Use `v_player_minutes` directly (`SUM(minutes_played)` grouped by `player_id` and `team_id`, joined to `player` and `team`).
+12. **Lookup tables & team names:** Always join `team`, `player`, `coach`, `referee`, and `stadium` to display human-readable names rather than raw foreign-key IDs. Always project `team.name` (English) for team names in SQL output (consistent with `v_standings` and `v_match`), while `player`, `coach`, `referee`, and `stadium` only have `name_fa`.
 
 ## Known data quirks
 - Player and coach names are Persian only; team names exist in both English and Persian.

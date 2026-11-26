@@ -406,7 +406,15 @@ def _resolve_column_in_scope(
         cur_scope = cur_scope.parent
 
     if col.table:
-        return False, None, f"Unknown table or alias '{col.table}' for column '{col.table}.{col_name}'."
+        defined = sorted(
+            set(scope_tables.get(id(scope), {}).keys()) | {k.lower() for k in scope.sources if k}
+        )
+        hint = f" Defined aliases in scope: {', '.join(defined)}." if defined else ""
+        return (
+            False,
+            None,
+            f"Unknown table or alias '{col.table}' for column '{col.table}.{col_name}'.{hint}",
+        )
     refs = sorted(set(scope_tables.get(id(scope), {}).values()))
     if refs:
         return False, None, f"Column '{col_name}' does not exist in referenced table(s): {', '.join(refs)}."

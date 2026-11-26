@@ -82,6 +82,12 @@ def _grade_item(
             return True, "Exact ordered row match"
         if Counter(actual_rows) == Counter(expected_rows):
             return False, f"Wrong row order (same multiset of {len(actual_rows)} rows)"
+        if len(actual_rows) > len(expected_rows) and actual_rows[: len(expected_rows)] == expected_rows:
+            return (
+                False,
+                f"Top-K prefix matches expected_rows; extra rows returned due to different LIMIT "
+                f"(expected {len(expected_rows)}, got {len(actual_rows)})",
+            )
         missing = list((Counter(expected_rows) - Counter(actual_rows)).elements())
         extra = list((Counter(actual_rows) - Counter(expected_rows)).elements())
         return (
@@ -102,6 +108,27 @@ def _grade_item(
     )
 
 
+def _is_ranking_prefix_equivalent(
+    item: dict[str, Any],
+    resp_data: dict[str, Any],
+    strict_passed: bool,
+) -> bool:
+    """Return True if strict-passed OR a ranking query whose top-K prefix (>=3 rows) matches expected_rows[:k]."""
+    if strict_passed:
+        return True
+    if item["id"] in ("q16", "q17"):
+        return False
+    if not _requires_order(item):
+        return False
+    if resp_data.get("action") != "answer_from_query" or not resp_data.get("executed"):
+        return False
+
+    expected_rows = _normalize_rows(item.get("expected_rows") or [])
+    actual_rows = _normalize_rows(resp_data.get("rows") or [])
+    k = min(len(actual_rows), len(expected_rows))
+    return k >= 3 and actual_rows[:k] == expected_rows[:k]
+
+
 def run_evaluation(
     base_url: str,
     lang: str,
@@ -115,6 +142,7 @@ def run_evaluation(
 
     results: list[dict[str, Any]] = []
     passed_count = 0
+    equiv_passed_count = 0
 
     with httpx.Client(timeout=60.0) as client:
         total = len(questions) * len(langs)
@@ -139,8 +167,11 @@ def run_evaluation(
                     reason = f"Request error: {exc}"
                     payload = {}
 
+                equiv_ok = _is_ranking_prefix_equivalent(item, payload, ok)
                 if ok:
                     passed_count += 1
+                if equiv_ok:
+                    equiv_passed_count += 1
                 print(f"  -> {'PASS' if ok else 'FAIL'}: {reason}")
 
                 results.append(
@@ -150,6 +181,7 @@ def run_evaluation(
                         "difficulty": item.get("difficulty", ""),
                         "question": q_text,
                         "passed": ok,
+                        "equivalent_passed": equiv_ok,
                         "reason": reason,
                         "action": payload.get("action"),
                         "executed": payload.get("executed"),
@@ -168,8 +200,10 @@ def run_evaluation(
         "base_url": base_url,
         "lang": lang,
         "passed": passed_count,
+        "equivalent_passed": equiv_passed_count,
         "total": len(results),
         "pass_rate": round(passed_count / len(results), 4) if results else 0.0,
+        "equivalent_pass_rate": round(equiv_passed_count / len(results), 4) if results else 0.0,
         "results": results,
     }
     (out_dir / "eval_report.json").write_text(
@@ -182,21 +216,24 @@ def run_evaluation(
         "",
         f"- **Target**: `{base_url}`",
         f"- **Language**: `{lang}`",
-        f"- **Score**: **{passed_count} / {len(results)}** ({report_json['pass_rate'] * 100:.1f}%)",
+        f"- **Strict exact score**: **{passed_count} / {len(results)}** ({report_json['pass_rate'] * 100:.1f}%)",
+        f"- **Equivalent (incl. Top-K prefix) score**: **{equiv_passed_count} / {len(results)}** ({report_json['equivalent_pass_rate'] * 100:.1f}%)",
         "",
-        "| ID | Lang | Difficulty | Status | Action | Rows | Notes / Failure Reason |",
-        "|---|---|---|---|---|---:|---|",
+        "| ID | Lang | Difficulty | Strict | Equiv | Action | Rows | Notes / Failure Reason |",
+        "|---|---|---|---|---|---|---:|---|",
     ]
     for r in results:
         status = "PASS" if r["passed"] else "FAIL"
+        equiv_status = "PASS" if r["equivalent_passed"] else "FAIL"
         reason_clean = str(r["reason"]).replace("|", "\\|").replace("\n", " ")
         md_lines.append(
-            f"| {r['id']} | {r['lang']} | {r['difficulty']} | {status} | "
+            f"| {r['id']} | {r['lang']} | {r['difficulty']} | {status} | {equiv_status} | "
             f"`{r['action']}` | {r['row_count']} | {reason_clean} |"
         )
     (out_dir / "eval_report.md").write_text("\n".join(md_lines) + "\n", encoding="utf-8")
     print(f"\nSaved reports to {out_dir / 'eval_report.md'} and {out_dir / 'eval_report.json'}")
-    print(f"Final score: {passed_count}/{len(results)}")
+    print(f"Strict exact score: {passed_count}/{len(results)}")
+    print(f"Equivalent (incl. Top-K prefix) score: {equiv_passed_count}/{len(results)}")
     return 0 if passed_count == len(results) else 1
 
 

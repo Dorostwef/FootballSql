@@ -16,8 +16,10 @@ from app.llm import (
     ActionType,
     LLMConfigurationError,
     SQLPlan,
+    check_sql_quality,
     generate_answer,
     plan_and_generate_sql,
+    should_recheck_out_of_scope,
 )
 from app.sandbox import SandboxError, execute_query, get_team_colors
 from app.semantic import extract_schema_allowlist, load_schema_sql, load_semantic_model
@@ -201,13 +203,32 @@ def ask(request: AskRequest) -> AskResponse:
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LLM planning failed: {exc}") from exc
 
+    if plan.action == "refuse_out_of_scope" and should_recheck_out_of_scope(request.question):
+        try:
+            plan = plan_and_generate_sql(
+                question=request.question,
+                history=request.history,
+                semantic_model=semantic_model,
+                schema_sql=schema_sql,
+                scope_retry_note=(
+                    "You returned refuse_out_of_scope, but the question references entities/concepts that DO exist "
+                    "in the schema. Check multi-hop join paths via match.match_id (for example: "
+                    "card/goal/penalty/substitution/var_decision -> match -> referee/stadium) before refusing. "
+                    "If it can be answered with a multi-hop JOIN, return answer_from_query."
+                ),
+            )
+        except LLMConfigurationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"LLM scope recheck failed: {exc}") from exc
+
     if plan.action != "answer_from_query":
         return _non_query_response(plan)
 
     allowlist = extract_schema_allowlist()
     validation = validate_sql(plan.sql or "", allowlist=allowlist)
 
-    # Allow at most 1 self-correction retry when validation or dry-run fails.
+    # 1. If validation/dry-run fails, allow 1 repair retry with validator feedback.
     if not (validation.valid and validation.dry_run_ok):
         try:
             retry_plan = plan_and_generate_sql(
@@ -230,6 +251,55 @@ def ask(request: AskRequest) -> AskResponse:
         validation = validate_sql(plan.sql or "", allowlist=allowlist)
         if not (validation.valid and validation.dry_run_ok):
             return _safe_validation_failure_response(plan, validation, request.question)
+
+    # 2. If SQL is valid, run static quality checks (at most 1 quality repair + 1 validator repair if needed).
+    quality_issues = check_sql_quality(validation.sql, question=request.question)
+    if quality_issues:
+        try:
+            q_retry_plan = plan_and_generate_sql(
+                question=request.question,
+                history=request.history,
+                semantic_model=semantic_model,
+                schema_sql=schema_sql,
+                validation_error="; ".join(quality_issues),
+                failed_sql=plan.sql,
+            )
+        except LLMConfigurationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"LLM quality retry failed: {exc}") from exc
+
+        if q_retry_plan.action != "answer_from_query":
+            return _non_query_response(q_retry_plan)
+
+        q_validation = validate_sql(q_retry_plan.sql or "", allowlist=allowlist)
+        if q_validation.valid and q_validation.dry_run_ok:
+            plan = q_retry_plan
+            validation = q_validation
+        else:
+            # Quality repair introduced a syntax/schema error (e.g. missing JOIN); give 1 validator repair retry.
+            try:
+                fix_plan = plan_and_generate_sql(
+                    question=request.question,
+                    history=request.history,
+                    semantic_model=semantic_model,
+                    schema_sql=schema_sql,
+                    validation_error="; ".join(q_validation.errors),
+                    failed_sql=q_retry_plan.sql,
+                )
+            except LLMConfigurationError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"LLM fix retry failed: {exc}") from exc
+
+            if fix_plan.action != "answer_from_query":
+                return _non_query_response(fix_plan)
+
+            fix_validation = validate_sql(fix_plan.sql or "", allowlist=allowlist)
+            if not (fix_validation.valid and fix_validation.dry_run_ok):
+                return _safe_validation_failure_response(fix_plan, fix_validation, request.question)
+            plan = fix_plan
+            validation = fix_validation
 
     try:
         exec_result = execute_query(
